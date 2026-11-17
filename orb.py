@@ -1,9 +1,10 @@
-"""ASCII swarm that gathers into a rotating orb (after the OpenFolie site's orb).
+"""ASCII swarm orb (after the OpenFolie site's orb), fed by the cable.
 
-Every glyph is its own particle. Each loop: the glyphs drift in flocks (each
-particle trails a leader, like the site's drift mode), stream together into a
-sphere that turns slowly with perspective and depth shading, hold, then break
-apart into flocks again.
+Every glyph is its own particle. Each loop the glyphs pour in down the cable
+from the banner above (entry), form a sphere that turns with perspective and
+depth shading, break apart into drifting flocks (each particle trails a
+leader, like the site's drift mode), then drain out the bottom (exit) toward
+the contribution graph below.
 
 Positions are a pure function of time with periodic paths, so the loop is
 seamless. They are sampled at KEY_FPS and the browser interpolates between
@@ -13,8 +14,8 @@ samples, so it plays at the display's frame rate.
 import math
 import random
 
-T = 16.0                                             # loop length (s)
-GATHER_END, HOLD_END, RELEASE_END = 2.8, 10.0, 12.4  # drift runs RELEASE_END -> T, then wraps
+T = 16.0                                             # loop length (s), shared with the banner
+POUR_END, HOLD_END, RELEASE_END, DRAIN_START = 3.4, 9.0, 11.2, 14.0
 KEY_FPS = 4
 TAU = math.pi * 2
 N = 460
@@ -28,9 +29,10 @@ def ease(p):
 
 
 class Orb:
-    def __init__(self, width, height, seed=7):
+    def __init__(self, width, height, entry, exit, seed=7):
         rnd = random.Random(seed)
         self.width, self.height = width, height
+        self.entry, self.exit = entry, exit                   # local coords, may lie outside the box
         self.r = min(width, height) * 0.4
         g = math.pi * (3 - math.sqrt(5))
         self.parts = []
@@ -66,31 +68,41 @@ class Orb:
         o = TAU * 4 * t / T + p["ph"]
         return x + p["ox"] + p["orb"] * math.cos(o), y + p["oy"] + p["orb"] * math.sin(o)
 
-    def settle(self, p, t):
-        """0 = flying with the flock, 1 = part of the orb."""
-        if t < GATHER_END:                                # streams in, top of the orb first
-            start = (1 - p["sy"]) / 2 * 1.4 + p["jit"] * 0.4
-            return ease((t - start) / 1.0)
-        if t < HOLD_END:
-            return 1.0
-        if t < RELEASE_END:                               # peels off, bottom first
-            start = HOLD_END + (1 + p["sy"]) / 2 * 1.2 + p["jit"] * 0.3
-            return 1 - ease((t - start) / 0.9)
-        return 0.0
+    @staticmethod
+    def bez(a, m, b, k):
+        u = 1 - k
+        return u * u * a[0] + 2 * u * k * m[0] + k * k * b[0], u * u * a[1] + 2 * u * k * m[1] + k * k * b[1]
 
     def state(self, p, t):
-        k = self.settle(p, t)
-        ox, oy, b = self.sphere(p, t)
-        if k >= 1:
-            return ox, oy, b
+        """(x, y, opacity) of particle p at time t."""
+        sx, sy, b = self.sphere(p, t)
+        cx = self.width / 2
+        if t < POUR_END:                                  # pour in down the cable, fan out onto the sphere
+            start = p["jit"] * 2.0
+            if t < start:
+                return self.entry[0], self.entry[1], 0.0
+            k = ease((t - start) / 1.2)
+            x, y = self.bez(self.entry, (cx, self.height * 0.12), (sx, sy), k)
+            return x, y, min(1.0, k * 4) * (0.9 + (b - 0.9) * k)
+        if t < HOLD_END:
+            return sx, sy, b
         dx, dy = self.drift(p, t)
-        return dx + (ox - dx) * k, dy + (oy - dy) * k, 0.7 + (b - 0.7) * k
+        if t < RELEASE_END:                               # peel off into flocks, bottom first
+            start = HOLD_END + (1 + p["sy"]) / 2 * 1.1 + p["jit"] * 0.3
+            k = 1 - ease((t - start) / 0.9)
+            return dx + (sx - dx) * k, dy + (sy - dy) * k, 0.7 + (b - 0.7) * k
+        if t < DRAIN_START:
+            return dx, dy, 0.7
+        start = DRAIN_START + p["jit"] * 1.1               # drain out the bottom cable
+        k = ease((t - start) / 0.8)
+        x, y = self.bez((dx, dy), (cx, self.height * 0.95), self.exit, k)
+        return x, y, 0.7 * (1 - k)
 
     # ── svg ──
     def svg(self, x, y, fill, font, size):
         n = round(T * KEY_FPS)
         times = [i * T / n for i in range(n)] + [T]
-        out = [f'<svg x="{x:.1f}" y="{y:.1f}" width="{self.width:.0f}" height="{self.height:.0f}" overflow="hidden">'
+        out = [f'<svg x="{x:.1f}" y="{y:.1f}" width="{self.width:.0f}" height="{self.height:.0f}" overflow="visible">'
                f'<g font-family="{font}" font-size="{size}" text-anchor="middle" fill="{fill}">']
         for p in self.parts:
             st = [self.state(p, t) for t in times]

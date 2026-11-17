@@ -3,7 +3,14 @@
     python render.py            # live data (needs GITHUB_TOKEN in env)
     python render.py --demo     # fake stats, no token needed
 
-Writes cards/dark.svg and cards/light.svg (README swaps them with GitHub's theme).
+Writes three layers, each in dark + light (README swaps them with GitHub's theme):
+    cards/banner-{1,2,3}-*.svg  cozy ascii scene, split into side-by-side panels
+    cards/hero-*.svg            name, details, the ascii orb
+    cards/contrib-*.svg         github-style contribution grid
+
+The layers are joined by one cable at banner.CABLE_X: code typed on the banner's
+monitor is pushed down it, pours into the orb, drains out, and lights up today's
+square in the contribution grid. Everything runs on the same 16 s loop.
 """
 
 import base64
@@ -16,6 +23,7 @@ import urllib.request
 from pathlib import Path
 from xml.sax.saxutils import escape
 
+import banner
 import orb
 
 ROOT = Path(__file__).parent
@@ -24,8 +32,10 @@ OUT = ROOT / "cards"
 # ── openfolie tokens ─────────────────────────────────────────────────────
 MODES = {
     "dark": dict(bg="#0a0a0a", text="#b8b8b8", strong="#f5f5f5", muted="#6f6f6f", line="#222222", art="#f5f5f5",
+                 bright="#f5f5f5", faint="#2e2e2e", glow="#ffffff",
                  cells=["#161616", "#2e2e2e", "#575757", "#9c9c9c", "#f5f5f5"]),
     "light": dict(bg="#fafaf9", text="#3a3a3a", strong="#0a0a0a", muted="#8a8a8a", line="#e4e4e2", art="#0a0a0a",
+                  bright="#0a0a0a", faint="#d4d4d1", glow="#9a9a96",
                   cells=["#ebebe9", "#cdcdca", "#999996", "#5a5a58", "#0a0a0a"]),
 }
 
@@ -93,9 +103,11 @@ def demo_stats():
 
 
 # ── svg helpers ──────────────────────────────────────────────────────────
-def font_css():
+def font_css(families=("G", "GM")):
     css = []
     for fam, file in (("G", "geist-latin.woff2"), ("GM", "geist-mono-latin.woff2")):
+        if fam not in families:
+            continue
         p = ROOT / "fonts" / file
         if p.exists():
             b64 = base64.b64encode(p.read_bytes()).decode()
@@ -156,27 +168,38 @@ def contrib_grid(s, x, y, c):
             lvl = 0 if n == 0 else 1 + sum(n > b for b in q)
             o.append(f'<rect x="{gx + w * pitch:.1f}" y="{gy + (d + off) * pitch:.1f}" width="{cell:.1f}" '
                      f'height="{cell:.1f}" rx="2" fill="{c["cells"][lvl]}"/>')
+    lw = len(weeks) - 1
+    today = (gx + lw * pitch, gy + (len(weeks[-1]) - 1 + (s.get("first_weekday", 0) if lw == 0 else 0)) * pitch, cell)
     by = gy + 7 * pitch + 14
-    o.append(txt(gx, by + 9, f"{s['total']:,} contributions in the last year", c["muted"], 11, MONO))
+    o.append(txt(gx, by + 9, f"{s['total']:,} contributions in the last year  ·  updated {dt.date.today().isoformat()}",
+                 c["muted"], 11, MONO))
     lx2 = W - PAD - 5 * 13 - 34
     o.append(txt(lx2 - 8, by + 9, "Less", c["muted"], 10, MONO, anchor="end"))
     for i, col in enumerate(c["cells"]):
         o.append(f'<rect x="{lx2 + i * 13}" y="{by}" width="10" height="10" rx="2" fill="{col}"/>')
     o.append(txt(lx2 + 5 * 13 + 4, by + 9, "More", c["muted"], 10, MONO))
-    return "".join(o), by + 10
+    return "".join(o), by + 10, today
 
 
-def render(cfg, s, swarm, c, fonts):
+def page(o, H, c, fonts):
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">'
+            f'<style>{fonts}</style><rect width="{W}" height="{H}" fill="{c["bg"]}"/>'
+            + "".join(o) + "</svg>")
+
+
+def section_head(o, title, note, c, y=40):
+    o.append(f'<rect x="{PAD}" y="{y - 8}" width="7" height="7" fill="{c["strong"]}"/>')
+    o.append(txt(PAD + 16, y, title, c["strong"], 11, MONO, upper=True))
+    if note:
+        o.append(label(W - PAD, y, note, c, anchor="end"))
+    o.append(hline(PAD, W - PAD, y + 21, c))
+
+
+def render_hero(cfg, s, swarm, c, fonts):
     today = dt.date.today()
     o = []
+    section_head(o, cfg["user"], None, c, 43)
 
-    # top bar
-    o.append(f'<rect x="{PAD}" y="35" width="7" height="7" fill="{c["strong"]}"/>')
-    o.append(txt(PAD + 16, 43, cfg["user"], c["strong"], 11, MONO, upper=True))
-    o.append(label(W - PAD, 43, f"updated {today.isoformat()}", c, anchor="end"))
-    o.append(hline(PAD, W - PAD, 64, c))
-
-    # left: who, details, numbers
     colr = W - PAD - ORB_W - 24
     o.append(txt(PAD, 124, cfg.get("name") or cfg["user"], c["strong"], 34, weight=600))
     if cfg.get("tagline"):
@@ -196,21 +219,41 @@ def render(cfg, s, swarm, c, fonts):
     for i, (k, v) in enumerate(stats):
         o.append(label(PAD + i * colw, y, k, c))
         o.append(txt(PAD + i * colw, y + 36, f"{v:,}", c["strong"], 30, weight=500))
-    left_bottom = y + 36
 
-    # right: the swarm
+    H = round(max(y + 36, 76 + ORB_H) + 28)
+    cx = banner.CABLE_X
+    for y1, y2 in ((0, 84), (76 + ORB_H - 14, H)):          # cable in from the banner, out to the grid
+        o.append(f'<line x1="{cx}" y1="{y1}" x2="{cx}" y2="{y2}" stroke="{c["muted"]}" stroke-width="1.5" '
+                 f'stroke-dasharray="1 4" stroke-linecap="round"/>')
     o.append(swarm.svg(W - PAD - ORB_W, 76, c["art"], MONO, GLYPH))
+    return page(o, H, c, fonts)
 
-    # contributions, github-style
-    y = max(left_bottom, 76 + ORB_H) + 30
-    o.append(hline(PAD, W - PAD, y, c))
-    grid, y = contrib_grid(s, PAD, y + 28, c)
+
+def render_contrib(s, c, fonts):
+    o = []
+    section_head(o, "contributions", None, c)
+    grid, y, (tx, ty, cell) = contrib_grid(s, PAD, 92, c)
     o.append(grid)
-    H = round(y + 34)
 
-    head = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">'
-            f'<style>{fonts}</style><rect width="{W}" height="{H}" rx="6" fill="{c["bg"]}"/>')
-    return head + "".join(o) + "</svg>"
+    # the cable arrives from the orb and lands on today's square
+    cx, hy = banner.CABLE_X, 76
+    xr, my = tx + cell + 9, ty + cell / 2                   # run down the grid's right edge, enter from the side
+    path = f"M{cx},0 L{cx},{hy} L{xr:.1f},{hy} L{xr:.1f},{my:.1f} L{tx + cell + 2:.1f},{my:.1f}"
+    o.append(f'<path d="{path}" fill="none" stroke="{c["muted"]}" stroke-width="1.5" stroke-dasharray="1 4" '
+             f'stroke-linecap="round"/>')
+    T = orb.T
+    loop = f'dur="{T}s" repeatCount="indefinite"'
+    for i in range(5):                       # the orb drains at the end of the loop -> arrives here at its start
+        a, b = 0.1 + i * 0.2, 1.1 + i * 0.2
+        o.append(f'<text dy="4" text-anchor="middle" font-family="{MONO}" font-size="11" fill="{c["art"]}" opacity="0">'
+                 f'{"+*:=+"[i]}<animateMotion {loop} path="{path}" keyPoints="0;0;1;1" '
+                 f'keyTimes="0;{a / T:.4f};{b / T:.4f};1" calcMode="linear"/>'
+                 f'<animate attributeName="opacity" {loop} values="0;1;0" keyTimes="0;{a / T:.4f};{b / T:.4f}" '
+                 f'calcMode="discrete"/></text>')
+    o.append(f'<rect x="{tx - 2:.1f}" y="{ty - 2:.1f}" width="{cell + 4:.1f}" height="{cell + 4:.1f}" rx="3" '
+             f'fill="none" stroke="{c["strong"]}" opacity="0"><animate attributeName="opacity" {loop} '
+             f'values="0;1;.35;0" keyTimes="0;{1.9 / T:.4f};{4 / T:.4f};{7 / T:.4f}"/></rect>')
+    return page(o, round(y + 30), c, fonts)
 
 
 def main():
@@ -221,15 +264,19 @@ def main():
         stats = demo_stats()
     else:
         stats = fetch_stats(cfg["user"], token)
-    swarm = orb.Orb(ORB_W, ORB_H)
-    fonts = font_css()
+    hero_h = 404                                            # approx; only used for the orb's exit point
+    ox = banner.CABLE_X - (W - PAD - ORB_W)
+    swarm = orb.Orb(ORB_W, ORB_H, entry=(ox, -76), exit=(ox, hero_h - 76))
+    fonts, mono_only = font_css(), font_css(("GM",))
     OUT.mkdir(exist_ok=True)
     for old in OUT.glob("*.svg"):
         old.unlink()
     for mode, colors in MODES.items():
-        (OUT / f"{mode}.svg").write_text(render(cfg, stats, swarm, colors, fonts), encoding="utf-8")
-    print(f"wrote cards/dark.svg, cards/light.svg ({len(swarm.parts)} particles)")
-
+        for i, panel in enumerate(banner.panels(colors, mono_only, MONO), 1):
+            (OUT / f"banner-{i}-{mode}.svg").write_text(panel, encoding="utf-8")
+        (OUT / f"hero-{mode}.svg").write_text(render_hero(cfg, stats, swarm, colors, fonts), encoding="utf-8")
+        (OUT / f"contrib-{mode}.svg").write_text(render_contrib(stats, colors, fonts), encoding="utf-8")
+    print("wrote cards/: banner-1..3, hero, contrib")
 
 if __name__ == "__main__":
     main()

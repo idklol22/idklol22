@@ -3,7 +3,7 @@ name: render profile card
 on:
   push:
     branches: [main]
-    paths: [profile.json, render.py, orb.py, .github/workflows/render.yml]
+    paths: [profile.json, render.py, orb.py, banner.py, .github/workflows/render.yml]
   schedule:
     - cron: "17 3 * * *" # daily
   workflow_dispatch:

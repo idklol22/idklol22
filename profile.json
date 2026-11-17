@@ -1,9 +1,9 @@
 {
   "user": "idklol22",
   "name": "idklol22",
-  "tagline": "CS undergrad at IIIT Hyderabad. Building OpenFolie.",
+  "tagline": "CS undergrad at IIIT Hyderabad. ML, RL, simulations and systems.",
   "rows": [
     ["studying", "Computer Science, IIIT Hyderabad"],
-    ["stack", "TypeScript, JavaScript, Python"]
+    ["stack", "Python, JavaScript, C / C++"]
   ]
 }
