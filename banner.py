@@ -17,7 +17,7 @@ from xml.sax.saxutils import escape
 T = 16.0
 W, H = 960, 150
 PANELS = 3
-FS, CW, LH, TOP = 10, 6.0, 10.5, 9          # Geist Mono advance = 0.6em
+FS, CW, LH, TOP = 10, 6.0, 10.5, 9          # JetBrains Mono advance = 0.6em
 COLS, ROWS = 160, 14
 CABLE_COL = 127
 CABLE_X = CABLE_COL * CW                     # the monitor cable leaves the banner here

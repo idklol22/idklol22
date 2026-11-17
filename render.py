@@ -30,17 +30,23 @@ OUT = ROOT / "cards"
 
 # ── slate palette (openfolie layout, dark slate blue / light slate) ──────
 MODES = {
-    "dark": dict(bg="#0f141c", text="#b4bfcd", strong="#eef2f7", muted="#6c7a8f", line="#212b3a", art="#eef2f7",
-                 bright="#eef2f7", faint="#252f3e", glow="#cfe0ff",
-                 cells=["#18202b", "#2a374b", "#45597a", "#7a91b5", "#dbe5f3"]),
+    "dark": dict(bg="#0a0e14", text="#aab5c4", strong="#eef2f7", muted="#5f6d82", line="#1a2230", art="#eef2f7",
+                 bright="#eef2f7", faint="#1f2835", glow="#cfe0ff",
+                 cells=["#121821", "#22304a", "#3c5070", "#7189b0", "#d6e1f2"]),
     "light": dict(bg="#eef1f5", text="#334155", strong="#0f172a", muted="#7b8799", line="#d5dbe3", art="#0f172a",
                   bright="#0f172a", faint="#cfd6df", glow="#7b8aa3",
                   cells=["#dde3ea", "#b7c3d3", "#8395ae", "#4b5d78", "#1e293b"]),
 }
 
 W, PAD = 960, 40
-SANS = "G,'Geist',system-ui,-apple-system,'Segoe UI',sans-serif"
-MONO = "GM,'Geist Mono',ui-monospace,Consolas,Menlo,monospace"
+SERIF = "S,'Instrument Serif',Georgia,'Times New Roman',serif"
+MONO = "GM,'JetBrains Mono',ui-monospace,Consolas,Menlo,monospace"   # 0.6em advance, same grid as before
+FONTS = {
+    "S": [("instrument-serif-latin-400-normal.woff2", 400, "normal"),
+          ("instrument-serif-latin-400-italic.woff2", 400, "italic")],
+    "GM": [("jetbrains-mono-latin-400-normal.woff2", 400, "normal"),
+           ("jetbrains-mono-latin-500-normal.woff2", 500, "normal")],
+}
 
 LOOP = banner.T
 
@@ -101,24 +107,28 @@ def demo_stats():
 
 
 # ── svg helpers ──────────────────────────────────────────────────────────
-def font_css(families=("G", "GM")):
+def font_css(families=("S", "GM")):
     css = []
-    for fam, file in (("G", "geist-latin.woff2"), ("GM", "geist-mono-latin.woff2")):
-        if fam not in families:
-            continue
-        p = ROOT / "fonts" / file
-        if p.exists():
-            b64 = base64.b64encode(p.read_bytes()).decode()
-            css.append(f"@font-face{{font-family:{fam};src:url(data:font/woff2;base64,{b64}) format('woff2')}}")
+    for fam in families:
+        for file, weight, style in FONTS[fam]:
+            path = ROOT / "fonts" / file
+            if path.exists():
+                b64 = base64.b64encode(path.read_bytes()).decode()
+                css.append(f"@font-face{{font-family:{fam};font-weight:{weight};font-style:{style};"
+                           f"src:url(data:font/woff2;base64,{b64}) format('woff2')}}")
+    # JetBrains Mono ships code ligatures (==, ||, ->); ascii art needs every glyph separate
+    css.append("text{font-variant-ligatures:none;font-feature-settings:'liga' 0,'calt' 0}")
     return "".join(css)
 
 
-def txt(x, y, s, fill, size, family=SANS, weight=None, anchor=None, upper=False):
+def txt(x, y, s, fill, size, family=SERIF, weight=None, anchor=None, upper=False, italic=False):
     a = f'x="{x:.1f}" y="{y:.1f}" fill="{fill}" font-size="{size}" font-family="{family}"'
     if weight:
         a += f' font-weight="{weight}"'
     if anchor:
         a += f' text-anchor="{anchor}"'
+    if italic:
+        a += ' font-style="italic"'
     if upper:
         a += ' letter-spacing="0.5"'
         s = s.upper()
@@ -208,20 +218,50 @@ def under_desk(c, H):
     cv.put(2, 3, "|____", "faint"); cv.put(2, 152, "____|", "faint")   # desk frame rail
     cv.put(floor, 0, "_" * banner.COLS, "muted")             # the floor
 
-    cc = banner.CABLE_COL                                    # monitor cable drops to a power strip
+    def block(r0, c0, lines, tone):
+        for i, l in enumerate(lines):
+            cv.put(r0 + i, c0, l, tone(i) if callable(tone) else tone)
+
+    # ── hanging under the desk top ──
+    block(0, 104, ["  _|_", " /   \\", "|     |", "[]   []"], "text")        # headphones on a hook
+    block(0, 116, [")", "(", " )", " o"], "faint")                          # mouse cable dangling off the edge
+    block(0, 137, [".----------------.", "|     [ __ ]     |", "|----------------|",
+                   "|     [ __ ]     |", "|----------------|", "|     [ __ ]     |",
+                   "'----------------'"], "muted")                         # drawer pedestal
+
+    # ── pinned to the back wall, in the shade under the desk ──
+    block(8, 104, [".--------.", "| todo:  |", "| - ship |", "| - sleep|", "'--------'"],
+          lambda i: "muted" if i in (0, 4) else "text")                    # sticky note
+    block(10, 116, [".--o---.", "|  /\\  |", "| /  \\ |", "|/____\\|", "'------'"], "muted")   # pinned photo
+    block(8, 139, ["   _||_", "  /    \\", " /|    |\\", "/_|    |_\\", "  |    |", "  |____|"],
+          lambda i: "muted" if i < 2 else "faint")                          # hoodie on the pedestal knob
+
+    # ── monitor cable drops to the power strip ──
+    cc = banner.CABLE_COL
     for r in range(0, floor - 3):
         cv.put(r, cc, ":", "faint")
     cv.put(floor - 3, cc, "|", "muted")
     cv.put(floor - 2, cc - 6, ".-----'-----.", "muted")
     cv.put(floor - 1, cc - 6, "[o o  o o  o]", "text")
 
-    bag = ["   .--.", "  /    \\", " | [==] |", " |  __  |", " |_|__|_|"]   # backpack
-    for i, l in enumerate(bag):
-        cv.put(floor - len(bag) + i, 104, l, "text")
-    plant = ["  \\ | //", " -.\\|//.-", "   _|_|_", "   \\___/", "    |_|"]   # floor plant
-    for i, l in enumerate(plant):
-        cv.put(floor - len(plant) + i, 140, l, "text" if i < 2 else "muted")
-    cv.put(floor - 1, 113, "(__/(__/", "muted")              # shoes
+    # ── on the floor ──
+    block(floor - 9, 102, [".---------.", "| [=====] |", "| [=====] |", "| ::::::: |", "|  .---.  |",
+                           "|  |(@)|  |", "|  '---'  |", "| o   ::: |", "'---------'"],
+          lambda i: "text" if i in (0, 5, 7, 8) else "muted")               # pc tower
+    cv.put(floor - 3, 113, "._", "faint")                                   # its power cable
+    cv.put(floor - 2, 115, "\\_____", "faint")
+    cv.put(floor - 1, 115, "@~~", "muted")                                  # the cat's yarn ball
+    block(floor - 5, 134, ["   .--.", "  /    \\", " | [==] |", " |  __  |", " |_|__|_|"], "text")   # backpack
+    block(floor - 12, 145, ["    _", "   |=|", "   |=|", "   | |", "   | |", "  _| |_", " /  .  \\",
+                            "(  (o)  )", " \\  '  /", " / ___ \\", "(  \\_/  )", " '-----'"],
+          lambda i: "muted" if i < 6 else "text")                           # guitar leaning on the leg
+
+    # dust + shadow under the desk (only in empty cells)
+    rnd = random.Random(9)
+    for r in range(3, floor):
+        for k in range(101, 155):
+            if cv.g[r][k][1] is None and rnd.random() < 0.035:
+                cv.put(r, k, rnd.choice(".'`,"), "faint")
     return cv.svg({"faint": c["faint"], "muted": c["muted"], "text": c["text"]})
 
 
@@ -231,16 +271,16 @@ def render_hero(cfg, s, c, fonts):
     section_head(o, "about", None, c, 43)
 
     colr = 600
-    o.append(txt(PAD, 120, cfg.get("name") or cfg["user"], c["strong"], 34, weight=600))
+    o.append(txt(PAD, 124, cfg.get("name") or cfg["user"], c["strong"], 48))
     if cfg.get("tagline"):
-        o.append(txt(PAD, 152, cfg["tagline"], c["text"], 16))
+        o.append(txt(PAD, 156, cfg["tagline"], c["text"], 19, italic=True))
     y = 182
     rows = list(cfg.get("rows", [])) + [["on github", span(s["created"], today)]]
     for k, v in rows:
         o.append(hline(PAD, colr, y, c))
         y += 24
         o.append(label(PAD, y, k, c))
-        o.append(txt(PAD + 104, y + 0.5, str(v), c["text"], 15))
+        o.append(txt(PAD + 110, y + 1, str(v), c["text"], 18))
         y += 13
     o.append(hline(PAD, colr, y, c))
     y += 34
@@ -248,7 +288,7 @@ def render_hero(cfg, s, c, fonts):
     colw = (colr - PAD) / len(stats)
     for i, (k, v) in enumerate(stats):
         o.append(label(PAD + i * colw, y, k, c))
-        o.append(txt(PAD + i * colw, y + 34, f"{v:,}", c["strong"], 30, weight=500))
+        o.append(txt(PAD + i * colw, y + 38, f"{v:,}", c["strong"], 42))
     H = round(y + 34 + 30)
 
     o.insert(0, f'<g font-family="{MONO}" font-size="{banner.FS}">{under_desk(c, H)}</g>')
