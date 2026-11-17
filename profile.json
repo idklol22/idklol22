@@ -2,6 +2,7 @@
   "user": "idklol22",
   "name": "Sanjam Wadhwa",
   "tagline": "CS undergrad at IIIT Hyderabad. ML, RL, simulations and systems.",
+  "fonts": "grotesk",
   "rows": [
     ["studying", "Computer Science, IIIT Hyderabad"],
     ["stack", "Python, JavaScript, C / C++"]
