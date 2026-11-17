@@ -1,0 +1,23 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>card preview</title>
+<style>
+  body { margin: 0; padding: 32px; background: #0d1117; color: #8b949e; font: 13px ui-monospace, monospace; }
+  body.light { background: #fff; color: #57606a; }
+  nav { margin-bottom: 20px; display: flex; gap: 8px; }
+  button { font: inherit; padding: 6px 12px; background: none; color: inherit; border: 1px solid #30363d; cursor: pointer; }
+  button.on { border-color: currentColor; }
+  img { width: 100%; max-width: 960px; display: block; }
+</style>
+<nav><button data-m="dark" class="on">dark</button><button data-m="light">light</button></nav>
+<p>simulates github's page background. run <code>python render.py --demo</code> first.</p>
+<img id="card">
+<script>
+  const draw = m => {
+    card.src = `cards/${m}.svg?${Date.now()}`;
+    document.body.className = m;
+    document.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.m === m));
+  };
+  document.querySelectorAll("button").forEach(b => b.onclick = () => draw(b.dataset.m));
+  draw("dark");
+</script>
