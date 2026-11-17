@@ -5,9 +5,9 @@ cat, plant, books, mug, monitor) rendered once and cropped into PANELS
 images with viewBox, so anything that crosses a split (rain, the string-light
 wave, the shooting star) stays continuous across the row of images.
 
-Everything runs on the shared 16 s loop: code gets typed on the monitor,
-`git push` goes out, and pulses run down the cable that leaves the bottom
-of the banner at CABLE_X, into the card below.
+The room continues below in the main card (render.py draws the under-desk
+area on the same character grid): the desk legs, drawer and the monitor
+cable at CABLE_X all carry on across the image boundary.
 """
 
 import math
@@ -19,7 +19,8 @@ W, H = 960, 150
 PANELS = 3
 FS, CW, LH, TOP = 10, 6.0, 10.5, 9          # Geist Mono advance = 0.6em
 COLS, ROWS = 160, 14
-CABLE_X = 760                                # must match the widget in the card below
+CABLE_COL = 127
+CABLE_X = CABLE_COL * CW                     # the monitor cable leaves the banner here
 TAU = math.pi * 2
 
 
@@ -36,12 +37,13 @@ def nb(s):
 
 
 class Canvas:
-    def __init__(self):
-        self.g = [[(" ", None)] * COLS for _ in range(ROWS)]
+    def __init__(self, rows=ROWS, cols=COLS, top=TOP):
+        self.rows, self.cols, self.top = rows, cols, top
+        self.g = [[(" ", None)] * cols for _ in range(rows)]
 
     def put(self, r, c, s, tone):
         for i, ch in enumerate(s):
-            if ch != " " and 0 <= r < ROWS and 0 <= c + i < COLS:
+            if ch != " " and 0 <= r < self.rows and 0 <= c + i < self.cols:
                 self.g[r][c + i] = (ch, tone)
 
     def svg(self, fills):
@@ -50,16 +52,16 @@ class Canvas:
             parts = []
             for r, row in enumerate(self.g):
                 c = 0
-                while c < COLS:
+                while c < self.cols:
                     if row[c][1] != tone:
                         c += 1
                         continue
                     s = c
-                    while c < COLS and (row[c][1] == tone or (row[c][0] == " " and c + 1 < COLS
+                    while c < self.cols and (row[c][1] == tone or (row[c][0] == " " and c + 1 < self.cols
                                                               and row[c + 1][1] == tone)):
                         c += 1
                     run = "".join(ch if t == tone else " " for ch, t in row[s:c])
-                    parts.append(f'<tspan x="{X(s):.1f}" y="{Y(r):.1f}">{nb(run)}</tspan>')
+                    parts.append(f'<tspan x="{X(s):.1f}" y="{self.top + r * LH:.1f}">{nb(run)}</tspan>')
             if parts:
                 out.append(f'<text fill="{fill}">{"".join(parts)}</text>')
         return "".join(out)
@@ -207,11 +209,6 @@ def scene(c, rnd):
     path = f"M{sx:.0f},{sy:.0f} C{sx:.0f},{Y(12):.0f} {CABLE_X},{Y(11.5):.0f} {CABLE_X},{H}"
     pre.append(f'<path d="{path}" fill="none" stroke="{c["muted"]}" stroke-width="1.5" '
                f'stroke-dasharray="1 4" stroke-linecap="round"/>')
-    for i in range(5):                                         # the push travels down the cable
-        a, b = 13.4 + i * 0.2, 14.6 + i * 0.2
-        anim.append(f'<text dy="3" text-anchor="middle" fill="{c["bright"]}" opacity="0">{"+*:=+"[i]}'
-                    f'<animateMotion {loop} path="{path}" keyPoints="0;0;1;1" keyTimes="0;{a / T:.4f};{b / T:.4f};1" calcMode="linear"/>'
-                    f'<animate attributeName="opacity" {loop} {window(a, b)}/></text>')
     return cv, pre, anim
 
 

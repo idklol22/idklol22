@@ -5,12 +5,12 @@
 
 Writes three layers, each in dark + light (README swaps them with GitHub's theme):
     cards/banner-{1,2,3}-*.svg  cozy ascii scene, split into side-by-side panels
-    cards/hero-*.svg            name, details, an ascii cassette on the cable
+    cards/hero-*.svg            name + details; the room continues under the desk
     cards/contrib-*.svg         github-style contribution grid
 
-The layers are joined by one cable at banner.CABLE_X: code typed on the banner's
-monitor is pushed down it, through the cassette, and lights up today's square
-in the contribution grid. Everything runs on the same 16 s loop.
+The ascii room carries on downward: the banner's desk legs, drawer and monitor
+cable continue into the main card (backpack, power strip, plant, shoes, floor),
+and the floor runs on as faint boards at the top of the contribution grid.
 """
 
 import base64
@@ -42,13 +42,6 @@ W, PAD = 960, 40
 SANS = "G,'Geist',system-ui,-apple-system,'Segoe UI',sans-serif"
 MONO = "GM,'Geist Mono',ui-monospace,Consolas,Menlo,monospace"
 
-_REEL = ["  .-.   _____   .-.  ", " ( o )  |___|  ( o ) ", "  '-'           '-'  "]
-CASSETTE = (                       # static ascii art the cable plugs into (every row 29 wide)
-    [" " + "_" * 27 + " ", "|  " + "_" * 23 + "  |", "| |" + " " * 23 + "| |"]
-    + ["| |" + r.center(23) + "| |" for r in _REEL]
-    + ["| |" + "_" * 23 + "| |", "|      " + "_" * 15 + "      |", "|_____/_o" + "_" * 11 + "o_\\_____|"]
-)
-ART_FS, ART_LH = 11, 13
 LOOP = banner.T
 
 
@@ -200,30 +193,36 @@ def section_head(o, title, note, c, y=40):
     o.append(hline(PAD, W - PAD, y + 21, c))
 
 
-def cassette(c, cx, y):
-    """Static ascii cassette centred on x=cx; returns (svg, width, height)."""
-    cols = max(map(len, CASSETTE))
-    w, h = cols * ART_FS * 0.6, len(CASSETTE) * ART_LH
-    x = cx - w / 2
-    rows = "".join(f'<tspan x="{x:.1f}" y="{y + (r + 1) * ART_LH - 3:.1f}">{escape(l).replace(" ", chr(0xA0))}</tspan>'
-                   for r, l in enumerate(CASSETTE))
-    return (f'<rect x="{x - 6:.1f}" y="{y - 4}" width="{w + 12:.1f}" height="{h + 8}" fill="{c["bg"]}"/>'
-            f'<text font-family="{MONO}" font-size="{ART_FS}" fill="{c["text"]}">{rows}</text>'), w, h
+def under_desk(c, H):
+    """The room below the banner, on the banner's character grid.
+    Row 0 sits right under the banner's last row."""
+    LH = banner.LH
+    top = banner.TOP + banner.ROWS * LH - banner.H              # continue the banner's row rhythm
+    rows = int((H - top) / LH) + 1
+    floor = rows - 1
+    cv = banner.Canvas(rows=rows, cols=banner.COLS, top=top)
+    for r in range(floor):                                   # desk legs keep going
+        cv.put(r, 3, "|", "muted"); cv.put(r, 156, "|", "muted")
+    cv.put(0, 8, "|                    |", "muted")            # drawer, bottom half
+    cv.put(1, 8, "'--------------------'", "muted")
+    cv.put(2, 3, "|____", "faint"); cv.put(2, 152, "____|", "faint")   # desk frame rail
+    cv.put(floor, 0, "_" * banner.COLS, "muted")             # the floor
 
+    cc = banner.CABLE_COL                                    # monitor cable drops to a power strip
+    for r in range(0, floor - 3):
+        cv.put(r, cc, ":", "faint")
+    cv.put(floor - 3, cc, "|", "muted")
+    cv.put(floor - 2, cc - 6, ".-----'-----.", "muted")
+    cv.put(floor - 1, cc - 6, "[o o  o o  o]", "text")
 
-def cable_pulses(c, x, y1, y2, t0, t1):
-    loop = f'dur="{LOOP}s" repeatCount="indefinite"'
-    out = []
-    for i in range(5):
-        a, b = (t0 + i * 0.1) % LOOP, (t1 + i * 0.1) % LOOP
-        if b < a:
-            b = LOOP - 0.01
-        out.append(f'<text dy="3" text-anchor="middle" font-family="{MONO}" font-size="10" fill="{c["art"]}" opacity="0">'
-                   f'{"+*:=+"[i]}<animateMotion {loop} path="M{x},{y1} L{x},{y2}" keyPoints="0;0;1;1" '
-                   f'keyTimes="0;{a / LOOP:.4f};{b / LOOP:.4f};1" calcMode="linear"/>'
-                   f'<animate attributeName="opacity" {loop} values="0;1;0" keyTimes="0;{a / LOOP:.4f};{b / LOOP:.4f}" '
-                   f'calcMode="discrete"/></text>')
-    return "".join(out)
+    bag = ["   .--.", "  /    \\", " | [==] |", " |  __  |", " |_|__|_|"]   # backpack
+    for i, l in enumerate(bag):
+        cv.put(floor - len(bag) + i, 104, l, "text")
+    plant = ["  \\ | //", " -.\\|//.-", "   _|_|_", "   \\___/", "    |_|"]   # floor plant
+    for i, l in enumerate(plant):
+        cv.put(floor - len(plant) + i, 140, l, "text" if i < 2 else "muted")
+    cv.put(floor - 1, 113, "(__/(__/", "muted")              # shoes
+    return cv.svg({"faint": c["faint"], "muted": c["muted"], "text": c["text"]})
 
 
 def render_hero(cfg, s, c, fonts):
@@ -231,7 +230,7 @@ def render_hero(cfg, s, c, fonts):
     o = []
     section_head(o, "about", None, c, 43)
 
-    colr = banner.CABLE_X - 150
+    colr = 600
     o.append(txt(PAD, 120, cfg.get("name") or cfg["user"], c["strong"], 34, weight=600))
     if cfg.get("tagline"):
         o.append(txt(PAD, 152, cfg["tagline"], c["text"], 16))
@@ -252,43 +251,21 @@ def render_hero(cfg, s, c, fonts):
         o.append(txt(PAD + i * colw, y + 34, f"{v:,}", c["strong"], 30, weight=500))
     H = round(y + 34 + 30)
 
-    cx = banner.CABLE_X
-    ah = len(CASSETTE) * ART_LH
-    ay = round((H - ah) / 2 + 12)
-    for y1, y2 in ((0, ay), (ay + ah, H)):                  # cable in from the banner, out to the grid
-        o.append(f'<line x1="{cx}" y1="{y1}" x2="{cx}" y2="{y2}" stroke="{c["muted"]}" stroke-width="1.5" '
-                 f'stroke-dasharray="1 4" stroke-linecap="round"/>')
-    o.append(cable_pulses(c, cx, 0, ay, 15.4, 15.9))         # banner push arrives...
-    o.append(cable_pulses(c, cx, ay + ah, H, 0.1, 0.6))      # ...and leaves for the grid
-    art, _, _ = cassette(c, cx, ay)
-    o.append(art)
+    o.insert(0, f'<g font-family="{MONO}" font-size="{banner.FS}">{under_desk(c, H)}</g>')
     return page(o, H, c, fonts)
 
 
 def render_contrib(s, c, fonts):
     o = []
-    section_head(o, "contributions", None, c)
-    grid, y, (tx, ty, cell) = contrib_grid(s, PAD, 92, c)
+    boards = banner.Canvas(rows=2, cols=banner.COLS, top=banner.TOP)
+    for r, (off, tone) in enumerate(((0, "faint"), (9, "faint"))):
+        boards.put(r, 0, "".join("|" if (k + off) % 18 == 0 else "_" for k in range(banner.COLS)), tone)
+    o.append(f'<g font-family="{MONO}" font-size="{banner.FS}" opacity=".7">'
+             f'{boards.svg({"faint": c["faint"]})}</g>')
+    section_head(o, "contributions", None, c, 52)
+    grid, y, _ = contrib_grid(s, PAD, 104, c)
     o.append(grid)
 
-    # the cable arrives from the widget and lands on today's square
-    cx, hy = banner.CABLE_X, 76
-    xr, my = tx + cell + 9, ty + cell / 2                   # run down the grid's right edge, enter from the side
-    path = f"M{cx},0 L{cx},{hy} L{xr:.1f},{hy} L{xr:.1f},{my:.1f} L{tx + cell + 2:.1f},{my:.1f}"
-    o.append(f'<path d="{path}" fill="none" stroke="{c["muted"]}" stroke-width="1.5" stroke-dasharray="1 4" '
-             f'stroke-linecap="round"/>')
-    T = LOOP
-    loop = f'dur="{T}s" repeatCount="indefinite"'
-    for i in range(5):                       # leaves the widget at ~0.6 s -> arrives here
-        a, b = 0.6 + i * 0.15, 1.6 + i * 0.15
-        o.append(f'<text dy="4" text-anchor="middle" font-family="{MONO}" font-size="11" fill="{c["art"]}" opacity="0">'
-                 f'{"+*:=+"[i]}<animateMotion {loop} path="{path}" keyPoints="0;0;1;1" '
-                 f'keyTimes="0;{a / T:.4f};{b / T:.4f};1" calcMode="linear"/>'
-                 f'<animate attributeName="opacity" {loop} values="0;1;0" keyTimes="0;{a / T:.4f};{b / T:.4f}" '
-                 f'calcMode="discrete"/></text>')
-    o.append(f'<rect x="{tx - 2:.1f}" y="{ty - 2:.1f}" width="{cell + 4:.1f}" height="{cell + 4:.1f}" rx="3" '
-             f'fill="none" stroke="{c["strong"]}" opacity="0"><animate attributeName="opacity" {loop} '
-             f'values="0;0;1;.35;0" keyTimes="0;{2.2 / T:.4f};{2.3 / T:.4f};{4.5 / T:.4f};{7.5 / T:.4f}"/></rect>')
     return page(o, round(y + 30), c, fonts)
 
 
