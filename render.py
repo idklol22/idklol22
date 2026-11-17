@@ -5,12 +5,12 @@
 
 Writes three layers, each in dark + light (README swaps them with GitHub's theme):
     cards/banner-{1,2,3}-*.svg  cozy ascii scene, split into side-by-side panels
-    cards/hero-*.svg            name, details, the ascii orb
+    cards/hero-*.svg            name, details, an ascii cassette on the cable
     cards/contrib-*.svg         github-style contribution grid
 
 The layers are joined by one cable at banner.CABLE_X: code typed on the banner's
-monitor is pushed down it, pours into the orb, drains out, and lights up today's
-square in the contribution grid. Everything runs on the same 16 s loop.
+monitor is pushed down it, through the cassette, and lights up today's square
+in the contribution grid. Everything runs on the same 16 s loop.
 """
 
 import base64
@@ -24,27 +24,32 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 import banner
-import orb
 
 ROOT = Path(__file__).parent
 OUT = ROOT / "cards"
 
-# ── openfolie tokens ─────────────────────────────────────────────────────
+# ── slate palette (openfolie layout, dark slate blue / light slate) ──────
 MODES = {
-    "dark": dict(bg="#0a0a0a", text="#b8b8b8", strong="#f5f5f5", muted="#6f6f6f", line="#222222", art="#f5f5f5",
-                 bright="#f5f5f5", faint="#2e2e2e", glow="#ffffff",
-                 cells=["#161616", "#2e2e2e", "#575757", "#9c9c9c", "#f5f5f5"]),
-    "light": dict(bg="#fafaf9", text="#3a3a3a", strong="#0a0a0a", muted="#8a8a8a", line="#e4e4e2", art="#0a0a0a",
-                  bright="#0a0a0a", faint="#d4d4d1", glow="#9a9a96",
-                  cells=["#ebebe9", "#cdcdca", "#999996", "#5a5a58", "#0a0a0a"]),
+    "dark": dict(bg="#0f141c", text="#b4bfcd", strong="#eef2f7", muted="#6c7a8f", line="#212b3a", art="#eef2f7",
+                 bright="#eef2f7", faint="#252f3e", glow="#cfe0ff",
+                 cells=["#18202b", "#2a374b", "#45597a", "#7a91b5", "#dbe5f3"]),
+    "light": dict(bg="#eef1f5", text="#334155", strong="#0f172a", muted="#7b8799", line="#d5dbe3", art="#0f172a",
+                  bright="#0f172a", faint="#cfd6df", glow="#7b8aa3",
+                  cells=["#dde3ea", "#b7c3d3", "#8395ae", "#4b5d78", "#1e293b"]),
 }
 
 W, PAD = 960, 40
 SANS = "G,'Geist',system-ui,-apple-system,'Segoe UI',sans-serif"
 MONO = "GM,'Geist Mono',ui-monospace,Consolas,Menlo,monospace"
 
-ORB_W, ORB_H = 340, 300            # the swarm's box (top right)
-GLYPH = 11                         # glyph size in the swarm
+_REEL = ["  .-.   _____   .-.  ", " ( o )  |___|  ( o ) ", "  '-'           '-'  "]
+CASSETTE = (                       # static ascii art the cable plugs into (every row 29 wide)
+    [" " + "_" * 27 + " ", "|  " + "_" * 23 + "  |", "| |" + " " * 23 + "| |"]
+    + ["| |" + r.center(23) + "| |" for r in _REEL]
+    + ["| |" + "_" * 23 + "| |", "|      " + "_" * 15 + "      |", "|_____/_o" + "_" * 11 + "o_\\_____|"]
+)
+ART_FS, ART_LH = 11, 13
+LOOP = banner.T
 
 
 # ── data ─────────────────────────────────────────────────────────────────
@@ -195,16 +200,42 @@ def section_head(o, title, note, c, y=40):
     o.append(hline(PAD, W - PAD, y + 21, c))
 
 
-def render_hero(cfg, s, swarm, c, fonts):
+def cassette(c, cx, y):
+    """Static ascii cassette centred on x=cx; returns (svg, width, height)."""
+    cols = max(map(len, CASSETTE))
+    w, h = cols * ART_FS * 0.6, len(CASSETTE) * ART_LH
+    x = cx - w / 2
+    rows = "".join(f'<tspan x="{x:.1f}" y="{y + (r + 1) * ART_LH - 3:.1f}">{escape(l).replace(" ", chr(0xA0))}</tspan>'
+                   for r, l in enumerate(CASSETTE))
+    return (f'<rect x="{x - 6:.1f}" y="{y - 4}" width="{w + 12:.1f}" height="{h + 8}" fill="{c["bg"]}"/>'
+            f'<text font-family="{MONO}" font-size="{ART_FS}" fill="{c["text"]}">{rows}</text>'), w, h
+
+
+def cable_pulses(c, x, y1, y2, t0, t1):
+    loop = f'dur="{LOOP}s" repeatCount="indefinite"'
+    out = []
+    for i in range(5):
+        a, b = (t0 + i * 0.1) % LOOP, (t1 + i * 0.1) % LOOP
+        if b < a:
+            b = LOOP - 0.01
+        out.append(f'<text dy="3" text-anchor="middle" font-family="{MONO}" font-size="10" fill="{c["art"]}" opacity="0">'
+                   f'{"+*:=+"[i]}<animateMotion {loop} path="M{x},{y1} L{x},{y2}" keyPoints="0;0;1;1" '
+                   f'keyTimes="0;{a / LOOP:.4f};{b / LOOP:.4f};1" calcMode="linear"/>'
+                   f'<animate attributeName="opacity" {loop} values="0;1;0" keyTimes="0;{a / LOOP:.4f};{b / LOOP:.4f}" '
+                   f'calcMode="discrete"/></text>')
+    return "".join(out)
+
+
+def render_hero(cfg, s, c, fonts):
     today = dt.date.today()
     o = []
-    section_head(o, cfg["user"], None, c, 43)
+    section_head(o, "about", None, c, 43)
 
-    colr = W - PAD - ORB_W - 24
-    o.append(txt(PAD, 124, cfg.get("name") or cfg["user"], c["strong"], 34, weight=600))
+    colr = banner.CABLE_X - 150
+    o.append(txt(PAD, 120, cfg.get("name") or cfg["user"], c["strong"], 34, weight=600))
     if cfg.get("tagline"):
-        o.append(txt(PAD, 158, cfg["tagline"], c["text"], 16))
-    y = 192
+        o.append(txt(PAD, 152, cfg["tagline"], c["text"], 16))
+    y = 182
     rows = list(cfg.get("rows", [])) + [["on github", span(s["created"], today)]]
     for k, v in rows:
         o.append(hline(PAD, colr, y, c))
@@ -213,19 +244,24 @@ def render_hero(cfg, s, swarm, c, fonts):
         o.append(txt(PAD + 104, y + 0.5, str(v), c["text"], 15))
         y += 13
     o.append(hline(PAD, colr, y, c))
-    y += 36
+    y += 34
     stats = [("repos", s["repos"]), ("commits this year", s["commits"])]
     colw = (colr - PAD) / len(stats)
     for i, (k, v) in enumerate(stats):
         o.append(label(PAD + i * colw, y, k, c))
-        o.append(txt(PAD + i * colw, y + 36, f"{v:,}", c["strong"], 30, weight=500))
+        o.append(txt(PAD + i * colw, y + 34, f"{v:,}", c["strong"], 30, weight=500))
+    H = round(y + 34 + 30)
 
-    H = round(max(y + 36, 76 + ORB_H) + 28)
     cx = banner.CABLE_X
-    for y1, y2 in ((0, 84), (76 + ORB_H - 14, H)):          # cable in from the banner, out to the grid
+    ah = len(CASSETTE) * ART_LH
+    ay = round((H - ah) / 2 + 12)
+    for y1, y2 in ((0, ay), (ay + ah, H)):                  # cable in from the banner, out to the grid
         o.append(f'<line x1="{cx}" y1="{y1}" x2="{cx}" y2="{y2}" stroke="{c["muted"]}" stroke-width="1.5" '
                  f'stroke-dasharray="1 4" stroke-linecap="round"/>')
-    o.append(swarm.svg(W - PAD - ORB_W, 76, c["art"], MONO, GLYPH))
+    o.append(cable_pulses(c, cx, 0, ay, 15.4, 15.9))         # banner push arrives...
+    o.append(cable_pulses(c, cx, ay + ah, H, 0.1, 0.6))      # ...and leaves for the grid
+    art, _, _ = cassette(c, cx, ay)
+    o.append(art)
     return page(o, H, c, fonts)
 
 
@@ -235,16 +271,16 @@ def render_contrib(s, c, fonts):
     grid, y, (tx, ty, cell) = contrib_grid(s, PAD, 92, c)
     o.append(grid)
 
-    # the cable arrives from the orb and lands on today's square
+    # the cable arrives from the widget and lands on today's square
     cx, hy = banner.CABLE_X, 76
     xr, my = tx + cell + 9, ty + cell / 2                   # run down the grid's right edge, enter from the side
     path = f"M{cx},0 L{cx},{hy} L{xr:.1f},{hy} L{xr:.1f},{my:.1f} L{tx + cell + 2:.1f},{my:.1f}"
     o.append(f'<path d="{path}" fill="none" stroke="{c["muted"]}" stroke-width="1.5" stroke-dasharray="1 4" '
              f'stroke-linecap="round"/>')
-    T = orb.T
+    T = LOOP
     loop = f'dur="{T}s" repeatCount="indefinite"'
-    for i in range(5):                       # the orb drains at the end of the loop -> arrives here at its start
-        a, b = 0.1 + i * 0.2, 1.1 + i * 0.2
+    for i in range(5):                       # leaves the widget at ~0.6 s -> arrives here
+        a, b = 0.6 + i * 0.15, 1.6 + i * 0.15
         o.append(f'<text dy="4" text-anchor="middle" font-family="{MONO}" font-size="11" fill="{c["art"]}" opacity="0">'
                  f'{"+*:=+"[i]}<animateMotion {loop} path="{path}" keyPoints="0;0;1;1" '
                  f'keyTimes="0;{a / T:.4f};{b / T:.4f};1" calcMode="linear"/>'
@@ -252,7 +288,7 @@ def render_contrib(s, c, fonts):
                  f'calcMode="discrete"/></text>')
     o.append(f'<rect x="{tx - 2:.1f}" y="{ty - 2:.1f}" width="{cell + 4:.1f}" height="{cell + 4:.1f}" rx="3" '
              f'fill="none" stroke="{c["strong"]}" opacity="0"><animate attributeName="opacity" {loop} '
-             f'values="0;1;.35;0" keyTimes="0;{1.9 / T:.4f};{4 / T:.4f};{7 / T:.4f}"/></rect>')
+             f'values="0;0;1;.35;0" keyTimes="0;{2.2 / T:.4f};{2.3 / T:.4f};{4.5 / T:.4f};{7.5 / T:.4f}"/></rect>')
     return page(o, round(y + 30), c, fonts)
 
 
@@ -264,9 +300,6 @@ def main():
         stats = demo_stats()
     else:
         stats = fetch_stats(cfg["user"], token)
-    hero_h = 404                                            # approx; only used for the orb's exit point
-    ox = banner.CABLE_X - (W - PAD - ORB_W)
-    swarm = orb.Orb(ORB_W, ORB_H, entry=(ox, -76), exit=(ox, hero_h - 76))
     fonts, mono_only = font_css(), font_css(("GM",))
     OUT.mkdir(exist_ok=True)
     for old in OUT.glob("*.svg"):
@@ -274,7 +307,7 @@ def main():
     for mode, colors in MODES.items():
         for i, panel in enumerate(banner.panels(colors, mono_only, MONO), 1):
             (OUT / f"banner-{i}-{mode}.svg").write_text(panel, encoding="utf-8")
-        (OUT / f"hero-{mode}.svg").write_text(render_hero(cfg, stats, swarm, colors, fonts), encoding="utf-8")
+        (OUT / f"hero-{mode}.svg").write_text(render_hero(cfg, stats, colors, fonts), encoding="utf-8")
         (OUT / f"contrib-{mode}.svg").write_text(render_contrib(stats, colors, fonts), encoding="utf-8")
     print("wrote cards/: banner-1..3, hero, contrib")
 
